@@ -35,9 +35,12 @@ def on_connect(client, userdata, flags, rc):
 
 
 count = 0  # Initialize the global count variable
+unique_timestamps = set()  # Create a set to store unique timestamps
+unique_responses = []  # Create a list to store unique responses based on timestamp
 
 def on_message(client, userdata, message):
-    global count  # Declare 'count' as a global variable
+    global count, unique_timestamps, unique_responses  # Declare global variables
+
     incoming_msg = json.loads(message.payload)
 
     # Ensure that the message is a list with at least one element
@@ -53,16 +56,21 @@ def on_message(client, userdata, message):
             "Geo_density": geo_density,
             "timestamp": timestamp
         }
-    else:
-        # If the message is not in the expected format, set values to None
-        result = {
-            "Geo_density": None,
-            "timestamp": None
-        }
 
-    count += 1  # Increment the count variable
-    print("Response {0}: {1}".format(count, result))  # Print the response number and the message
+        # Check if this result's timestamp is unique
+        if timestamp not in unique_timestamps:
+            unique_timestamps.add(timestamp)  # Add the timestamp to the set of unique timestamps
+            unique_responses.append(result)  # Add the response to the list of unique responses
+            count += 1  # Increment the count variable
 
+        if count == 5:
+            print("Received 5 unique responses with unique timestamps:")
+            for response in unique_responses:
+                print(response)
+        else:
+            # If you have collected 5 unique responses, you can choose to stop listening to further messages
+            # or perform additional actions as needed.
+            pass
 
    
 try:
