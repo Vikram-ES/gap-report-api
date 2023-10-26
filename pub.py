@@ -38,33 +38,52 @@ unique_responses1 = []  # Create a list to store unique responses based on times
 unique_timestamps2 = set()  # Create a set to store unique timestamps
 unique_responses2 = []  # Create a list to store unique responses based on timestamp
 
+def calculation(input_df):
+    df = input_df.copy()
+    df= df[(df['SCHENCK2_FEED_RATE']>=5500) & (df['SCHENCK2_FEED_RATE']<6700)]
+    df = df[(df['Geo_density'] >= 1.56) & 
+        (df['Geo_density'] <= 1.69)]
+    
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+    df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Kolkata')
+
+    print('...............Output after conversion:.............')
+    print(df)
+    # hourly_intervals = pd.date_range(start=df['timestamp'].min(), end=df['timestamp'].max(), freq='H')
+
+    # Lists to store z_scores for each time period
+    # all_z_scores = []
+
+
 def process_responses():
     global count1,count2, unique_responses1, unique_timestamps1, unique_responses2, unique_timestamps2
     
-    if count1 == 15:
-        print("Received 5 unique responses with unique timestamps:")
-        for response in unique_responses1:
-            print(response)
+    if count1 == 3:
+        # print("Received 5 unique responses with unique timestamps:")
+        # for response in unique_responses1:
+        #     print(response)
 
         df1 = pd.DataFrame(unique_responses1)
         # Print the DataFrame
         # print("DataFrame for topic_line1:")
         # print(df1)
         
-    if count2 == 15:
-        print("Received 5 unique responses with unique timestamps:")
-        for response in unique_responses2:
-            print(response)
+    if count2 == 3:
+        # print("Received 5 unique responses with unique timestamps:")
+        # for response in unique_responses2:
+        #     print(response)
         
         # Print the DataFrame
         df2 = pd.DataFrame(unique_responses2)
         # print("DataFrame for topic_line2:")
         # print(df2)
 
-    if count1 == 15 and count2 == 15:
+    if count1 == 3 and count2 == 3:
         merged_df = df1.merge(df2, on="timestamp", how="inner")
         print("Inner Joined DataFrame:")
         print(merged_df)
+
+        calculation(merged_df)
 
         count1 = 0
         unique_responses1[:] = []  # Clear the list
