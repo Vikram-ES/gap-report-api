@@ -1,4 +1,4 @@
-###########################################################
+
 import requests
 import json
 import pandas as pd 
@@ -38,6 +38,17 @@ count = 0  # Initialize the global count variable
 unique_timestamps = set()  # Create a set to store unique timestamps
 unique_responses = []  # Create a list to store unique responses based on timestamp
 
+def process_responses():
+    global count, unique_responses
+    if count == 5:
+        print("Received 5 unique responses with unique timestamps:")
+        for response in unique_responses:
+            print(response)
+        
+        count = 0
+        unique_responses[:] = []  # Clear the list
+        unique_timestamps = set()  # Clear the set
+
 def on_message(client, userdata, message):
     global count, unique_timestamps, unique_responses  # Declare global variables
 
@@ -63,14 +74,8 @@ def on_message(client, userdata, message):
             unique_responses.append(result)  # Add the response to the list of unique responses
             count += 1  # Increment the count variable
 
-        if count == 5:
-            print("Received 5 unique responses with unique timestamps:")
-            for response in unique_responses:
-                print(response)
-        else:
-            # If you have collected 5 unique responses, you can choose to stop listening to further messages
-            # or perform additional actions as needed.
-            pass
+        process_responses()
+
 
    
 try:
