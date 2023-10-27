@@ -38,6 +38,7 @@ unique_responses1 = []  # Create a list to store unique responses based on times
 unique_timestamps2 = set()  # Create a set to store unique timestamps
 unique_responses2 = []  # Create a list to store unique responses based on timestamp
 
+
 def calculation(input_df):
     df = input_df.copy()
 
@@ -48,7 +49,7 @@ def calculation(input_df):
     df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Kolkata')
 
     # Define the benchmark value
-    benchmark = 1.65
+    benchmark = 1.645
 
     # Calculate the standard deviation of 'Geo_density'
     data = df['Geo_density'].values
@@ -67,12 +68,12 @@ def calculation(input_df):
     
 
     alert_time = df['timestamp'].iloc[0]
-    negative_z_scores = df[df['z_scores'] < 1]
+    negative_z_scores = df[df['z_scores'] < 0]
     print(negative_z_scores)
 
     result = {}
     
-    if len(negative_z_scores) > 5:
+    if len(negative_z_scores) > 10:
         result = {'flag':True, 'alert_time':alert_time}
         return result
     
@@ -84,7 +85,7 @@ def process_responses():
     print("count1", count1)
     print("count2", count2)
     
-    if count1 >= 10:
+    if count1 >= 3:
         # print("Received 5 unique responses with unique timestamps:")
         # for response in unique_responses1:
         #     print(response)
@@ -94,7 +95,7 @@ def process_responses():
         # print("DataFrame for topic_line1:")
         # print(df1)
         
-    if count2 >= 10:
+    if count2 >= 3:
         # print("Received 5 unique responses with unique timestamps:")
         # for response in unique_responses2:
         #     print(response)
@@ -104,19 +105,23 @@ def process_responses():
         # print("DataFrame for topic_line2:")
         # print(df2)
 
-    if count1 >= 10 and count2 >= 10:
+    if count1 >= 3 and count2 >= 3:
         merged_df = df1.merge(df2, on="timestamp", how="inner")
         print("Inner Joined DataFrame:")
         print(merged_df)
 
-        result = calculation(merged_df)
-        flag = result.get('flag')
-        alert_time = result.get('alert_time')
+        # result = calculation(merged_df)
+        # flag = result.get('flag')
+        # alert_time = result.get('alert_time')
 
-        if not flag:
-            print("...???????.... NO! need to generate alert ......?????????....")
-        elif flag:
-            print("Generate alert at time...", alert_time)
+        # if not flag:
+        #     for i in range(5):
+        #         print("...???????.... NO! need to generate alert ......?????????....")
+        # elif flag:
+        #     for i in range(5):
+        #         print("...???????....Generate alert at time.......?????????....", alert_time)
+
+        sendEmail()
 
         count1 = 0
         unique_responses1[:] = []  # Clear the list
@@ -180,13 +185,50 @@ def on_message(client, userdata, message):
             process_responses()
 
 
+def sendEmail():
+    """
+    Send Email 
+    """
+    message = '<h1>Testing Email Sending </h1>'
+
+    try:
+        url = config["api"]["meta"].replace("exactapi", "mail/send-mail")
+        print("url: ", url)
+        payload = json.dumps({
+            "from": "vikram.k@exactspace.co",
+            "to": [
+                "vikramkbgs@gmail.com"
+            ],
+            "html": message,
+            "bcc": [],
+            "subject": "Testing Email Sending",
+            "body": message
+        })
+        print("payload: ",payload)
+
+        headers = {
+            'Content-Type': 'application/json'
+        }
+
+        # response = requests.request("POST", url, headers=headers, data=payload)
+
+        # if response.text == "Success":
+        #     return "Success"
+        # else:
+        #     print("Error in sending mail", response.status_code)
+        #     return "Fail"
+
+    except Exception as e:
+        print("Error in sending mail", e)
+        return "Fail"
+
    
 try:
     client.username_pw_set(username=config["BROKER_USERNAME"], password=config["BROKER_PASSWORD"])
 except:
     pass
 client.connect(config['BROKER_ADDRESS'], port)
-client.on_log = on_log
+# client.on_log = on_log
 client.on_connect = on_connect
 client.on_message = on_message
 client.loop_forever()
