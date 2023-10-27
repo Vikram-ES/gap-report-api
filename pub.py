@@ -15,7 +15,7 @@ config = cfg.getconfig()
 
 topic_line1 = "u/60ae9143e284d016d3559dfb/GAP_GAP04.PLC04.MLD2_DATA_Anode_Geometric"
 topic_line2 = "u/60ae9143e284d016d3559dfb/GAP_GAP03.PLC03.SCHENCK2_FEED_RATE"
-
+topic_line3 ="example/result/gap"
 
 port = 1883
 
@@ -28,6 +28,7 @@ def on_log(client, userdata, obj, buff):
 def on_connect(client, userdata, flags, rc):
     client.subscribe(topic_line1)
     client.subscribe(topic_line2)
+    client.publish(topic_line3, 'Hello')
     print ("Connected!")
 
 
@@ -49,7 +50,7 @@ def calculation(input_df):
     df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Kolkata')
 
     # Define the benchmark value
-    benchmark = 1.645
+    benchmark = 1.64
 
     # Calculate the standard deviation of 'Geo_density'
     data = df['Geo_density'].values
@@ -69,17 +70,16 @@ def calculation(input_df):
 
     alert_time = df['timestamp'].iloc[0]
     negative_z_scores = df[df['z_scores'] < 0]
-    print(negative_z_scores)
+    print(len(negative_z_scores))
 
     result = {}
     
-    if len(negative_z_scores) > 10:
+    if len(negative_z_scores) > 2:
         result = {'flag':True, 'alert_time':alert_time}
         return result
     
     return {'flag':False, 'alert_time':0}
 
-    
 def process_responses():
     global count1,count2, unique_responses1, unique_timestamps1, unique_responses2, unique_timestamps2
     print("count1", count1)
@@ -121,7 +121,8 @@ def process_responses():
         #     for i in range(5):
         #         print("...???????....Generate alert at time.......?????????....", alert_time)
 
-        sendEmail()
+        # sendEmail()
+        send_alert_request()
 
         count1 = 0
         unique_responses1[:] = []  # Clear the list
@@ -184,7 +185,6 @@ def on_message(client, userdata, message):
 
             process_responses()
 
-
 def sendEmail():
     """
     Send Email 
@@ -221,6 +221,32 @@ def sendEmail():
     except Exception as e:
         print("Error in sending mail", e)
         return "Fail"
+
+def send_alert_request():
+    try:
+        # Define the URL to which you want to send the POST request
+        url = "http://127.0.0.1:5000/alert"
+
+        # Define the data you want to send as a dictionary
+        data = {
+            "name": "vikram",
+            "age": "23"
+        }
+
+        # Send the POST request with the provided data
+        response = requests.post(url, data=data)
+        
+        # Check the response status code to determine success
+        if response.status_code == 200:
+            print("POST request was successful")
+            return response.text
+        else:
+            print("POST request failed with status code:", response.status_code)
+            return None
+    except Exception as e:
+        print("An error occurred:", str(e))
+        return None
+
 
    
 try:
