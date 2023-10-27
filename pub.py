@@ -40,25 +40,51 @@ unique_responses2 = []  # Create a list to store unique responses based on times
 
 def calculation(input_df):
     df = input_df.copy()
-    df= df[(df['SCHENCK2_FEED_RATE']>=5500) & (df['SCHENCK2_FEED_RATE']<6700)]
-    df = df[(df['Geo_density'] >= 1.56) & 
-        (df['Geo_density'] <= 1.69)]
-    
+
+    df = df[(df['SCHENCK2_FEED_RATE'] >= 5500) & (df['SCHENCK2_FEED_RATE'] < 6700)]
+    df = df[(df['Geo_density'] >= 1.56) & (df['Geo_density'] <= 1.69)]
+
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
     df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Kolkata')
 
-    print('...............Output after conversion:.............')
+    # Define the benchmark value
+    benchmark = 1.65
+
+    # Calculate the standard deviation of 'Geo_density'
+    data = df['Geo_density'].values
+    benchmark_std = np.std(data)
+
+    print("debug.. benchmark_std", benchmark_std)
+
+    df['z_scores'] = np.nan
+
+    # Calculate 'z_scores' based on the benchmark and standard deviation
+    if benchmark_std > 0:
+        df['z_scores'] = (df['Geo_density'] - benchmark) / benchmark_std
+    
+    print('...............Output z scores:.............')
     print(df)
-    # hourly_intervals = pd.date_range(start=df['timestamp'].min(), end=df['timestamp'].max(), freq='H')
+    
 
-    # Lists to store z_scores for each time period
-    # all_z_scores = []
+    alert_time = df['timestamp'].iloc[0]
+    negative_z_scores = df[df['z_scores'] < 1]
+    print(negative_z_scores)
 
+    result = {}
+    
+    if len(negative_z_scores) > 5:
+        result = {'flag':True, 'alert_time':alert_time}
+        return result
+    
+    return {'flag':False, 'alert_time':0}
 
+    
 def process_responses():
     global count1,count2, unique_responses1, unique_timestamps1, unique_responses2, unique_timestamps2
+    print("count1", count1)
+    print("count2", count2)
     
-    if count1 == 3:
+    if count1 >= 10:
         # print("Received 5 unique responses with unique timestamps:")
         # for response in unique_responses1:
         #     print(response)
@@ -68,7 +94,7 @@ def process_responses():
         # print("DataFrame for topic_line1:")
         # print(df1)
         
-    if count2 == 3:
+    if count2 >= 10:
         # print("Received 5 unique responses with unique timestamps:")
         # for response in unique_responses2:
         #     print(response)
@@ -78,12 +104,19 @@ def process_responses():
         # print("DataFrame for topic_line2:")
         # print(df2)
 
-    if count1 == 3 and count2 == 3:
+    if count1 >= 10 and count2 >= 10:
         merged_df = df1.merge(df2, on="timestamp", how="inner")
         print("Inner Joined DataFrame:")
         print(merged_df)
 
-        calculation(merged_df)
+        result = calculation(merged_df)
+        flag = result.get('flag')
+        alert_time = result.get('alert_time')
+
+        if not flag:
+            print("...???????.... NO! need to generate alert ......?????????....")
+        elif flag:
+            print("Generate alert at time...", alert_time)
 
         count1 = 0
         unique_responses1[:] = []  # Clear the list
