@@ -8,9 +8,11 @@ import string
 import random
 import time
 import app_config.app_config as cfg
+import os
 
 
 config = cfg.getconfig()
+PUBLIC_DATACENTER_URL = config["api"].get("public_datacenter_url", "NA")
 
 
 topic_line1 = "u/60ae9143e284d016d3559dfb/GAP_GAP04.PLC04.MLD2_DATA_Anode_Geometric"
@@ -65,16 +67,17 @@ def calculation(input_df):
         df['z_scores'] = (df['Geo_density'] - benchmark) / benchmark_std
     
     print('...............Output z scores:.............')
+
     print(df)
     
+    if(len(df)):
+        alert_time = df['timestamp'].iloc[0]
 
-    alert_time = df['timestamp'].iloc[0]
     negative_z_scores = df[df['z_scores'] < 0]
-    print(len(negative_z_scores))
 
     result = {}
     
-    if len(negative_z_scores) > 2:
+    if len(negative_z_scores) > 5:
         result = {'flag':True, 'alert_time':alert_time}
         return result
     
@@ -85,7 +88,7 @@ def process_responses():
     print("count1", count1)
     print("count2", count2)
     
-    if count1 >= 3:
+    if count1 >= 13:
         # print("Received 5 unique responses with unique timestamps:")
         # for response in unique_responses1:
         #     print(response)
@@ -95,7 +98,7 @@ def process_responses():
         # print("DataFrame for topic_line1:")
         # print(df1)
         
-    if count2 >= 3:
+    if count2 >= 13:
         # print("Received 5 unique responses with unique timestamps:")
         # for response in unique_responses2:
         #     print(response)
@@ -105,24 +108,26 @@ def process_responses():
         # print("DataFrame for topic_line2:")
         # print(df2)
 
-    if count1 >= 3 and count2 >= 3:
+    if count1 >= 13 and count2 >= 13:
         merged_df = df1.merge(df2, on="timestamp", how="inner")
         print("Inner Joined DataFrame:")
         print(merged_df)
 
-        # result = calculation(merged_df)
-        # flag = result.get('flag')
-        # alert_time = result.get('alert_time')
+        result = calculation(merged_df)
+        flag = result.get('flag')
+        alert_time = result.get('alert_time')
 
-        # if not flag:
-        #     for i in range(5):
-        #         print("...???????.... NO! need to generate alert ......?????????....")
-        # elif flag:
-        #     for i in range(5):
-        #         print("...???????....Generate alert at time.......?????????....", alert_time)
+        if not flag:
+            for i in range(5):
+                print("...???????.... NO! need to generate alert ......?????????....")
+        elif flag:
+            for i in range(5):
+                print("...???????....Generate alert at time.......?????????....", alert_time)
 
         # sendEmail()
-        send_alert_request()
+        sendAlmEmail()
+
+        # send_alert_request()
 
         count1 = 0
         unique_responses1[:] = []  # Clear the list
@@ -247,6 +252,93 @@ def send_alert_request():
         print("An error occurred:", str(e))
         return None
 
+def sendAlmEmail():
+    unitName = 'GAP'
+    SiteName = 'Mahan'
+    CustomerName = 'Birla-Hindalco'
+    alertLevel = 'warning'
+    
+
+    emailTemplate = os.getcwd() + '/assets/email-template/almEmailTemplate.html'
+
+    with open(emailTemplate, "r") as f:
+        templateEmail = f.read()
+
+    with open(os.getcwd() + '/assets/email-template/almEmailTemp.html', "w") as f1:
+        f1.write(templateEmail)
+
+    with open(os.getcwd() + '/assets/email-template/almEmailTemp.html', "r") as f2:
+        s = f2.read()
+
+
+    if PUBLIC_DATACENTER_URL != "NA":
+
+        logoLink = """img src=" """ + PUBLIC_DATACENTER_URL + """pulse-files/email-logos/logo.png" """
+        s = s.replace("""img src="#" """, logoLink)
+    else:
+        logoLink = "https://data.exactspace.co/pulse-files/email-logos/logo.png"
+        s = s.replace("""img src="#" """, logoLink)        
+    
+    
+    if str(alertLevel) == "warning":
+        s = s.replace("""<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:red; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active</b></td>""",
+                      """<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:#fd7e14; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active</b></td>"""
+                     )
+
+    s = s.replace("UnitName", unitName)
+    s = s.replace("SiteName", SiteName)
+    s = s.replace("CustomerName", CustomerName)
+    
+    # try:                                                                 //  i need description about these lines of code
+    #     timeDiff = assetDict[unitId]['timeDiff']
+    #     timeDiff_hrs = float(timeDiff)/(60 * 60 * 1000)
+    # except Exception as e:
+    #     logger.error("timeDiff error! Alm Email NOT sent!")
+    #     logger.exception(e)
+    #     return
+
+
+    with open(os.getcwd() + '/assets/email-template/almEmailTemp.html', "wb") as f:
+        f.write(s.encode('utf-8'))
+
+    with open(os.getcwd() + '/assets/email-template/almEmailTemp.html', "r") as f:
+        msg_body = f.read()
+
+    # print("BODY", type(msg_body))
+    # print("msg_body", type(msg_body))
+
+
+    try:
+        url = config["api"]["meta"].replace("exactapi", "mail/send-mail")
+        print("url: ", url)
+        payload = json.dumps({
+             "from": "vikram.k@exactspace.co",
+            "to": [
+                "vikramkbgs@gmail.com"
+            ],
+            "html": msg_body,
+            "bcc": [],
+            "subject": "Testing Email Sending",
+            "body": msg_body
+        })
+
+        print("payload: ",payload)
+
+        headers = {
+            'Content-Type': 'application/json'
+        }
+
+        response = requests.request("POST", url, headers=headers, data=payload)
+
+        if response.text == "Success":
+            return "Success"
+        else:
+            print("Error in sending mail", response.status_code)
+            return "Fail"
+
+    except Exception as e:
+        print("Error in sending mail", e)
+        return "Fail"
 
    
 try:
