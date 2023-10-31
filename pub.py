@@ -17,7 +17,6 @@ PUBLIC_DATACENTER_URL = config["api"].get("public_datacenter_url", "NA")
 
 topic_line1 = "u/60ae9143e284d016d3559dfb/GAP_GAP04.PLC04.MLD2_DATA_Anode_Geometric"
 topic_line2 = "u/60ae9143e284d016d3559dfb/GAP_GAP03.PLC03.SCHENCK2_FEED_RATE"
-topic_line3 ="example/result/gap"
 
 port = 1883
 
@@ -30,7 +29,6 @@ def on_log(client, userdata, obj, buff):
 def on_connect(client, userdata, flags, rc):
     client.subscribe(topic_line1)
     client.subscribe(topic_line2)
-    client.publish(topic_line3, 'Hello')
     print ("Connected!")
 
 
@@ -41,103 +39,101 @@ unique_responses1 = []  # Create a list to store unique responses based on times
 unique_timestamps2 = set()  # Create a set to store unique timestamps
 unique_responses2 = []  # Create a list to store unique responses based on timestamp
 alertList = []
-
+n = 1
 
 def calculation(input_df):
-    df = input_df.copy()
+    try:
+        # Copy the input DataFrame to avoid modifying the original data
+        df = input_df.copy()
 
-    df = df[(df['SCHENCK2_FEED_RATE'] >= 5500) & (df['SCHENCK2_FEED_RATE'] < 6700)]
-    df = df[(df['Geo_density'] >= 1.56) & (df['Geo_density'] <= 1.69)]
+        # Filter the DataFrame based on conditions
+        df = df[(df['SCHENCK2_FEED_RATE'] >= 5500) &
+                (df['SCHENCK2_FEED_RATE'] < 6700) &
+                (df['Geo_density'] >= 1.56) &
+                (df['Geo_density'] <= 1.69)]
 
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
-    df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Kolkata')
+        # Convert and format the timestamp column
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+        df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Kolkata')
+        df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-    # Define the benchmark value
-    benchmark = 1.67
+        # Define the benchmark value
+        benchmark = 1.645
 
-    # Calculate the standard deviation of 'Geo_density'
-    data = df['Geo_density'].values
-    benchmark_std = np.std(data)
+        # Calculate the standard deviation of 'Geo_density'
+        benchmark_std = np.std(df['Geo_density'])
 
-    print("debug.. benchmark_std", benchmark_std)
+        print("Benchmark Standard Deviation:", benchmark_std)
 
-    df['z_scores'] = np.nan
+        # Calculate 'z_scores' based on the benchmark and standard deviation
+        if benchmark_std > 0:
+            df['z_scores'] = (df['Geo_density'] - benchmark) / benchmark_std
 
-    # Calculate 'z_scores' based on the benchmark and standard deviation
-    if benchmark_std > 0:
-        df['z_scores'] = (df['Geo_density'] - benchmark) / benchmark_std
-    
-    print('...............Output z scores:.............')
+        # Determine alert conditions and collect relevant data
+        alert_data = {'flag': 'normal', 'alert_time': 0, 'desc': "Geometric Density above {:.2f}".format(benchmark)}
 
-    print(df)
-    
-    if(len(df)):
-        alert_time = df['timestamp'].iloc[0]
+        negative_z_scores = df[df['z_scores'] < 0]
 
-    negative_z_scores = df[df['z_scores'] < 0]
+        if not negative_z_scores.empty:
+            alert_time = negative_z_scores.iloc[0]['timestamp']
+            alert_data['alert_time'] = alert_time
 
-    result = {}
-    
-    if len(negative_z_scores) > 5:
-        result = {'flag':True, 'alert_time':alert_time, 'sample': len(negative_z_scores)}
-        return result
-    
-    return {'flag':False, 'alert_time':0, 'sample': len(negative_z_scores)}
+            result_size = len(negative_z_scores)
+            sample_size = len(df)
+
+            if result_size > sample_size * 2 / 3:
+                alert_data['flag'] = 'warning'
+                alert_data['desc'] = "Geometric Density less than {:.2f}".format(benchmark)
+            elif result_size > sample_size / 2:
+                alert_data['flag'] = 'critical'
+                alert_data['desc'] = "Geometric Density less than {:.2f}".format(benchmark)
+
+        return alert_data
+    except Exception as e:
+        print("Error in calculation:", e)
+        return {'flag': 'error', 'alert_time': 0, 'desc': 'Error during calculation'}
 
 def process_responses():
-    global count1,count2, unique_responses1, unique_timestamps1, unique_responses2, unique_timestamps2
-    print("count1", count1)
-    print("count2", count2)
-    
-    if count1 >= 13:
-        # print("Received 5 unique responses with unique timestamps:")
-        # for response in unique_responses1:
-        #     print(response)
+    global count1, count2, unique_responses1, unique_responses2, unique_timestamps1, unique_timestamps2
+    # print("...Geometric Density Receiving Packet no. : {} Schenk2 Feed Rate Receiving Packet no. : {}".format(count1, count2))
 
-        df1 = pd.DataFrame(unique_responses1)
-        # Print the DataFrame
-        # print("DataFrame for topic_line1:")
-        # print(df1)
-        
-    if count2 >= 13:
-        # print("Received 5 unique responses with unique timestamps:")
-        # for response in unique_responses2:
-        #     print(response)
-        
-        # Print the DataFrame
-        df2 = pd.DataFrame(unique_responses2)
-        # print("DataFrame for topic_line2:")
-        # print(df2)
+    # Define the sample size
+    sample_size = 100
 
-    if count1 >= 13 and count2 >= 13:
-        merged_df = df1.merge(df2, on="timestamp", how="inner")
-        print("Inner Joined DataFrame:")
-        print(merged_df)
+    try:
+        # Check if we have received enough packets for both topics
+        if count1 >= sample_size and count2 >= sample_size:
+            # Create DataFrames when sample size is met
+            df1 = pd.DataFrame(unique_responses1)
+            df2 = pd.DataFrame(unique_responses2)
 
-        result = calculation(merged_df)
-        flag = result.get('flag')
-        alert_time = result.get('alert_time')
+            # Merge the DataFrames based on the 'timestamp' column
+            merged_df = df1.merge(df2, on="timestamp", how="inner")
 
-        if not flag:
-            for i in range(5):
-                print("...???????.... NO! need to generate alert ......?????????....")
-        elif flag:
-            for i in range(5):
-                print("...???????....Generate alert at time.......?????????....", alert_time)
-            sendAlmEmail(result)
+            # print("Inner Joined DataFrame:")
+            # print(merged_df)
 
-        
+            # Calculate results based on merged data
+            result = calculation(merged_df)
 
-        # send_alert_request()
+            flag = result.get('flag')
+            alert_time = result.get('alert_time')
 
-        count1 = 0
-        unique_responses1[:] = []  # Clear the list
-        unique_timestamps1 = set()  # Clear the set
+            if flag == 'warning' or flag == 'critical':
+                sendAlmEmail(result)
+            else:
+                alertList = []
 
-        count2 = 0
-        unique_responses2[:] = []  # Clear the list
-        unique_timestamps2 = set()  # Clear the set
+            # Reset counters and clear lists/sets
+            count1 = count2 = 0
+            unique_responses1[:] = []
+            unique_responses2[:] = []
+            unique_timestamps1 = set()
+            unique_timestamps2 = set()
 
+    except Exception as e:
+        print("An error occurred in process_responses:", e)
+       
 def on_message(client, userdata, message):
     global count1, count2, unique_timestamps1, unique_responses1, unique_timestamps2, unique_responses2  # Declare global variables
 
@@ -188,199 +184,99 @@ def on_message(client, userdata, message):
                 unique_timestamps2.add(timestamp)  # Add the timestamp to the set of unique timestamps
                 unique_responses2.append(result)  # Add the response to the list of unique responses
                 count2 += 1  # Increment the count variable
+                
 
             process_responses()
 
-def sendEmail():
-    """
-    Send Email 
-    """
-    message = '<h1>Testing Email Sending </h1>'
-
-    try:
-        url = config["api"]["meta"].replace("exactapi", "mail/send-mail")
-        print("url: ", url)
-        payload = json.dumps({
-            "from": "vikram.k@exactspace.co",
-            "to": [
-                "vikramkbgs@gmail.com"
-            ],
-            "html": message,
-            "bcc": [],
-            "subject": "Testing Email Sending",
-            "body": message
-        })
-        print("payload: ",payload)
-
-        headers = {
-            'Content-Type': 'application/json'
-        }
-
-        # response = requests.request("POST", url, headers=headers, data=payload)
-
-        # if response.text == "Success":
-        #     return "Success"
-        # else:
-        #     print("Error in sending mail", response.status_code)
-        #     return "Fail"
-
-    except Exception as e:
-        print("Error in sending mail", e)
-        return "Fail"
-
-def send_alert_request():
-    try:
-        # Define the URL to which you want to send the POST request
-        url = "http://127.0.0.1:5000/alert"
-
-        # Define the data you want to send as a dictionary
-        data = {
-            "name": "vikram",
-            "age": "23"
-        }
-
-        # Send the POST request with the provided data
-        response = requests.post(url, data=data)
-        
-        # Check the response status code to determine success
-        if response.status_code == 200:
-            print("POST request was successful")
-            return response.text
-        else:
-            print("POST request failed with status code:", response.status_code)
-            return None
-    except Exception as e:
-        print("An error occurred:", str(e))
-        return None
-
 def sendAlmEmail(alterArg):
-    global alertList
-    unitName = 'GAP'
-    SiteName = 'Mahan'
-    CustomerName = 'Birla-Hindalco'
-    alert_time = alterArg.get('alert_time')
-    alert_sample = alterArg.get('sample')
-
-    if alert_sample >= 8:
-        alertLevel = 'critical'
-    else:
-        alertLevel = 'warning'
+    global alertList, n
+    unitName, SiteName, CustomerName = 'GAP', 'Mahan', 'Hindalco'
+    alertLevel = alterArg.get('desc', '')
 
     if len(alertList) < 5:
         alertList.append(alterArg)
     else:
         alertList = []
 
-    emailTemplate = os.getcwd() + '/assets/email-template/almEmailTemplate.html'
+    emailTemplate = os.path.join(os.getcwd(), 'assets/email-template/almEmailTemplate.html')
+    
+    with open(emailTemplate, 'r') as f:
+        s = f.read()
 
-    with open(emailTemplate, "r") as f:
-        templateEmail = f.read()
-
-    with open(os.getcwd() + '/assets/email-template/almEmailTemp.html', "w") as f1:
-        f1.write(templateEmail)
-
-    with open(os.getcwd() + '/assets/email-template/almEmailTemp.html', "r") as f2:
-        s = f2.read()
-
-
-    if PUBLIC_DATACENTER_URL != "NA":
-
-        logoLink = """img src=" """ + PUBLIC_DATACENTER_URL + """pulse-files/email-logos/logo.png" """
-        s = s.replace("""img src="#" """, logoLink)
+    if PUBLIC_DATACENTER_URL != 'NA':
+        logoLink = 'img src="{}pulse-files/email-logos/logo.png"'.format(PUBLIC_DATACENTER_URL)
+        s = s.replace('img src="#"', logoLink)
     else:
-        logoLink = "https://data.exactspace.co/pulse-files/email-logos/logo.png"
-        s = s.replace("""img src="#" """, logoLink)        
-    
-    
+        logoLink = 'https://data.exactspace.co/pulse-files/email-logos/logo.png'
+        s = s.replace('img src="#"', 'img src="{}"'.format(logoLink))
+
     if str(alertLevel) == "warning":
-        s = s.replace("""<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:yellow; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active</b></td>""",
-                      """<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:#fd7e14; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active</b></td>"""
+        s = s.replace("""<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:yellow; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active(warning)</b></td>""",
+                      """<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:#fd7e14; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active(warning)</b></td>"""
                      )
         
     if str(alertLevel) == "critical":
-        s = s.replace("""<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:red; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active</b></td>""",
-                      """<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:#fd7e14; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active</b></td>"""
+        s = s.replace("""<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:red; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active(critical)</b></td>""",
+                      """<td colspan="3" align="left" style="border-bottom: solid 1px #CACACA; color:#fd7e14; padding-bottom: 5px; font-size: 15px;"><b>Alarms Active(critical)</b></td>"""
                      )
 
-    s = s.replace("UnitName", unitName)
-    s = s.replace("SiteName", SiteName)
-    s = s.replace("CustomerName", CustomerName)
+    s = s.replace('UnitName', unitName)
+    s = s.replace('SiteName', SiteName)
+    s = s.replace('CustomerName', CustomerName)
     
-    devTable = ""
+    devTable = ''
 
-    if len(alertList) > 0:                    
-        devTable =  """
-                    <tbody id="devList">
-                    """
-
+    if alertList:
+        devTable = '<tbody id="devList">'
         for alert in alertList:
-            n = 1
             try:
-                devTable += """<tr>
-                                <td align="center" width="40" style="border-bottom: solid 1px #CACACA;">{}</td>
-                                <td align="left" style="font-size: 13px; border-bottom: solid 1px #CACACA;">{}</td>
-                                <td align="left" width="100" style="font-size: 13px; border-bottom: solid 1px #CACACA;">{}</td>
-                                </tr>"""\
-                            .format(n,\
-                                    # dev["description"].encode('ascii', 'ignore'),
-                                    alert['sample'],
-                                    alert['alert_time'])
-                
-            
+                devTable += '''
+                    <tr>
+                        <td align="center" width="40" style="border-bottom: solid 1px #CACACA;">{}</td>
+                        <td align="left" style="font-size: 13px; border-bottom: solid 1px #CACACA;">{}</td>
+                        <td align="left" width="100" style="font-size: 13px; border-bottom: solid 1px #CACACA;">{}</td>
+                    </tr>
+                '''.format(n, alert.get('desc', ''), alert.get('alert_time', ''))
+                n += 1
             except Exception as e:
-                print('error in creating table of alert',e)
+                print('Error in creating a table of alert', e)
                 return
-            n = n + 1
 
-        s = s.replace("""<tbody id="devList">""", """<tbody id="devList">"""+devTable)
-    
+        s = s.replace('<tbody id="devList">', devTable)
+
     else:
-        print("Alarm with no open criticalTags, mail not sent!")
-        return 
+        print('Alarm with no open criticalTags, mail not sent!')
+        return
 
-
-    with open(os.getcwd() + '/assets/email-template/almEmailTemp.html', "wb") as f:
+    with open(os.path.join(os.getcwd(), 'assets/email-template/almEmailTemp.html'), 'wb') as f:
         f.write(s.encode('utf-8'))
 
-    with open(os.getcwd() + '/assets/email-template/almEmailTemp.html', "r") as f:
+    with open(os.path.join(os.getcwd(), 'assets/email-template/almEmailTemp.html'), 'r') as f:
         msg_body = f.read()
 
-    # print("BODY", type(msg_body))
-    # print("msg_body", type(msg_body))
-
-
     try:
-        url = config["api"]["meta"].replace("exactapi", "mail/send-mail")
-        # print("url: ", url)
+        url = config['api']['meta'].replace('exactapi', 'mail/send-mail')
         payload = json.dumps({
-             "from": "vikram.k@exactspace.co",
-            "to": [
-                "vikramkbgs@gmail.com"
-            ],
-            "html": msg_body,
-            "bcc": [],
-            "subject": "Testing Email Sending",
-            "body": msg_body
+            'from': 'vikram.k@exactspace.co',
+            'to': ['vikramkbgs@gmail.com'],
+            'html': msg_body,
+            'bcc': [],
+            'subject': 'Testing Email Sending',
+            'body': msg_body
         })
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(url, data=payload, headers=headers)
 
-        # print("payload: ",payload)
-
-        headers = {
-            'Content-Type': 'application/json'
-        }
-
-        response = requests.request("POST", url, headers=headers, data=payload)
-
-        if response.text == "Success":
-            print("Email sent to client.")
-            return "Success"
+        if response.text == 'Success':
+            print('Email sent to the client.')
+            return 'Success'
         else:
-            print("Error in sending mail", response.status_code)
-            return "Fail"
+            print('Error in sending mail', response.status_code)
+            return 'Fail'
 
     except Exception as e:
-        print("Error in sending mail", e)
-        return "Fail"
+        print('Error in sending mail', e)
+        return 'Fail'
 
    
 try:
